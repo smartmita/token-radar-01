@@ -4,7 +4,7 @@
 [![rank](https://make.fun/badge/token-radar-01/smartmita/token-radar-01/rank.svg)](https://make.fun/bounty/token-radar-01/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=token-radar-01)
 [![reward](https://make.fun/badge/token-radar-01/smartmita/token-radar-01/reward.svg)](https://make.fun/bounty/token-radar-01?utm_source=github&utm_medium=readme&utm_campaign=token-radar-01)
 
-Empirical pre-token launch valuation radar and costed farming planner built for DefiLlama snapshot data using inner-CV Ridge size-elasticity regression (`MCAP ~ TVL^0.45`), Empirical-Bayes category shrinkage, dual held-out validation (5-fold CV and 30% newest-listed holdout), Ridge logistic peer token-odds, and dilution-adjusted net farm verdicts.
+Empirical pre-token launch valuation radar and costed farming planner built for DefiLlama snapshot data using Huber IRLS size-momentum regression (`MCAP ~ TVL^0.48`) across clean live comparables, Empirical-Bayes category adjustment, longevity durability weighting, logistic peer token-odds, and dilution-adjusted net farm plans.
 
 ## Run it
 

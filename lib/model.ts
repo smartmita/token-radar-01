@@ -65,7 +65,6 @@ export interface BoardRow {
     category_adj_mult: number;
     growth_multiplier: number;
     maturity_multiplier: number;
-    conviction_score: number;
   };
   farm_steps: string[];
 }
@@ -79,12 +78,8 @@ export interface RadarPayload {
     intercept: number;
     beta_log_tvl: number;
     beta_growth_asinh: number;
-    beta_log_age: number;
     mean_log_tvl: number;
     median_age_days: number;
-    lambda_tvl: number;
-    lambda_rest: number;
-    category_shrinkage_k: number;
     oof_q25_log_err: number;
     oof_q75_log_err: number;
     global_median_mult: number;

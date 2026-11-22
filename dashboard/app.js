@@ -61,27 +61,9 @@
   function applyFilters(allRows) {
     const q = state.search.trim().toLowerCase();
     if (state.view === 'live') {
-      return D.live.filter((p) => {
-        if (state.category && (p.category || '') !== state.category) return false;
-        if (state.chain && !p.chains.includes(state.chain)) return false;
-        if (state.minTvl > 0 && p.tvl_usd < state.minTvl) return false;
-        if (q && !(`${p.name} ${p.slug} ${p.symbol || ''} ${p.chains.join(' ')}`.toLowerCase().includes(q))) return false;
-        return true;
-      });
+      return D.live.filter((p) => (!state.category || (p.category || '') === state.category) && (!state.chain || p.chains.includes(state.chain)) && (state.minTvl <= 0 || p.tvl_usd >= state.minTvl) && (!q || `${p.name} ${p.slug} ${p.symbol || ''} ${p.chains.join(' ')}`.toLowerCase().includes(q)));
     }
-
-    const filtered = allRows.filter((r) => {
-      if (state.view === 'watchlist' && r.cohort !== 'watchlist') return false;
-      if (state.view === 'early' && r.cohort !== 'early') return false;
-      if (state.view === 'farmable' && r.dyn_ev <= 0) return false;
-      if (state.category && (r.category || '') !== state.category) return false;
-      if (state.chain && !r.chains.includes(state.chain)) return false;
-      if (state.verdict && r.dyn_verdict !== state.verdict) return false;
-      if (state.minTvl > 0 && r.tvl_usd < state.minTvl) return false;
-      if (q && !(`${r.name} ${r.slug} ${r.category || ''} ${r.chains.join(' ')}`.toLowerCase().includes(q))) return false;
-      return true;
-    });
-
+    const filtered = allRows.filter((r) => (state.view !== 'watchlist' || r.cohort === 'watchlist') && (state.view !== 'early' || r.cohort === 'early') && (state.view !== 'farmable' || r.dyn_ev > 0) && (!state.category || (r.category || '') === state.category) && (!state.chain || r.chains.includes(state.chain)) && (!state.verdict || r.dyn_verdict === state.verdict) && (state.minTvl <= 0 || r.tvl_usd >= state.minTvl) && (!q || `${r.name} ${r.slug} ${r.category || ''} ${r.chains.join(' ')}`.toLowerCase().includes(q)));
     const sorters = {
       rank: (a, b) => a.rank - b.rank,
       ev: (a, b) => b.dyn_ev - a.dyn_ev || b.token_odds_pct - a.token_odds_pct,
@@ -91,37 +73,30 @@
       growth: (a, b) => (b.change_7d ?? -999) - (a.change_7d ?? -999),
       conviction: (a, b) => b.conviction_score - a.conviction_score || b.dyn_ev - a.dyn_ev,
     };
-    filtered.sort(sorters[state.sort] || sorters.rank);
-    return filtered;
+    return filtered.sort(sorters[state.sort] || sorters.rank);
   }
 
   function renderHeaderAndKpis(allRows) {
-    const c = D.coefficients;
-    const v = D.validation;
-    const part = E.partitionUniverse(D);
+    const c = D.coefficients, v = D.validation, part = E.partitionUniverse(D);
     $('model-badge').textContent = D.model_name;
-    $('snapshot-meta').textContent =
-      `Snapshot ${D.as_of} · ${D.total_protocols} protocols (${part.watchlistCount} Watchlist >= ${fmtUsd(D.floor_usd)} + ${part.earlyCount} Early) · ${part.excludedWrappedCount} wrapped/bridge excluded`;
-    $('live-sep-pill').textContent = `${part.liveCompsCount} LIVE TOKENS SEPARATED`;
+    $('snapshot-meta').textContent = `Snapshot ${D.as_of} · ${D.total_protocols} protocols: ${part.preTokenCount + part.excludedWrappedCount} no-token (${part.watchlistCount} Watchlist + ${part.earlyCount} Early + ${part.excludedWrappedCount} excl.) · ${part.liveTotalCount} live (${part.liveCompsCount} comps)`;
+    $('live-sep-pill').textContent = `${part.liveTotalCount} LIVE TOKENS SEPARATED`;
     $('curve-note').textContent = `MCAP ~ TVL^${c.beta_log_tvl.toFixed(2)} · 5-fold CV Log-RMSE ${v.cv_5fold.model_log_rmse.toFixed(2)} vs ${v.cv_5fold.naive_log_rmse.toFixed(2)} naive`;
-
-    const farmable = allRows.filter((r) => r.dyn_ev > 0);
-    const strong = allRows.filter((r) => r.dyn_verdict === 'STRONG FARM');
+    const farmable = allRows.filter((r) => r.dyn_ev > 0), strong = allRows.filter((r) => r.dyn_verdict === 'STRONG FARM');
     const bestEv = [...allRows].sort((a, b) => b.dyn_ev - a.dyn_ev)[0];
-
     $('cnt-all').textContent = String(allRows.length);
     $('cnt-wl').textContent = String(part.watchlistCount);
     $('cnt-early').textContent = String(part.earlyCount);
     $('cnt-farm').textContent = String(farmable.length);
     $('cnt-live').textContent = String(part.liveCompsCount);
-
-    $('kpi-grid').innerHTML = [
-      { label: 'Watchlist Coverage', val: `${part.watchlistCount} / ${part.watchlistCount}`, cls: 'emerald', foot: `100% floor + ${part.earlyCount} early pre-token` },
-      { label: 'Fitted Size Elasticity', val: `TVL^${c.beta_log_tvl.toFixed(2)}`, cls: 'sky', foot: `Ridge (${c.lambda_tvl}/${c.lambda_rest}) + Cat EB (k=${c.category_shrinkage_k})` },
-      { label: 'Held-Out Log-RMSE', val: `${v.cv_5fold.model_log_rmse.toFixed(2)} vs ${v.cv_5fold.naive_log_rmse.toFixed(2)}`, cls: 'emerald', foot: `Holdout: ${v.temporal_holdout.model_log_rmse.toFixed(2)} vs ${v.temporal_holdout.naive_log_rmse.toFixed(2)} naive` },
-      { label: 'Peer Token-Odds AUC', val: `${v.token_odds_cv_auc.toFixed(3)}`, cls: 'violet', foot: `5-fold Brier ${v.token_odds_cv_brier.toFixed(3)} across ${v.token_odds_universe} peers` },
-      { label: `Farm Alpha ($${state.budget})`, val: `${strong.length} Strong / ${farmable.length} +EV`, cls: 'gold', foot: bestEv ? `Top EV: +$${bestEv.dyn_ev.toFixed(2)} (${bestEv.name})` : '' },
-    ].map((k) => `<div class="kpi-card"><div class="kpi-label">${k.label}</div><div class="kpi-val ${k.cls}">${k.val}</div><div class="kpi-foot">${esc(k.foot)}</div></div>`).join('');
+    const kpis = [
+      ['Watchlist Coverage', `${part.watchlistCount} / ${part.watchlistCount}`, 'emerald', `100% floor + ${part.earlyCount} early pre-token`],
+      ['Fitted Size Elasticity', `TVL^${c.beta_log_tvl.toFixed(2)}`, 'sky', `Ridge (${c.lambda_tvl}/${c.lambda_rest}) + Cat EB (k=${c.category_shrinkage_k})`],
+      ['Held-Out Log-RMSE', `${v.cv_5fold.model_log_rmse.toFixed(2)} vs ${v.cv_5fold.naive_log_rmse.toFixed(2)}`, 'emerald', `Holdout: ${v.temporal_holdout.model_log_rmse.toFixed(2)} vs ${v.temporal_holdout.naive_log_rmse.toFixed(2)} naive`],
+      ['Peer Token-Odds AUC', `${v.token_odds_cv_auc.toFixed(3)}`, 'violet', `5-fold Brier ${v.token_odds_cv_brier.toFixed(3)} across ${v.token_odds_universe} peers`],
+      [`Farm Alpha ($${state.budget})`, `${strong.length} Strong / ${farmable.length} +EV`, 'gold', bestEv ? `Top EV: +$${bestEv.dyn_ev.toFixed(2)} (${bestEv.name})` : ''],
+    ];
+    $('kpi-grid').innerHTML = kpis.map(([l, val, cls, f]) => `<div class="kpi-card"><div class="kpi-label">${l}</div><div class="kpi-val ${cls}">${val}</div><div class="kpi-foot">${esc(f)}</div></div>`).join('');
   }
 
   function renderProofPanel() {
@@ -129,180 +104,65 @@
     panel.classList.toggle('hidden', !state.proofOpen);
     $('proof-toggle').classList.toggle('active', state.proofOpen);
     if (!state.proofOpen) return;
-    const v = D.validation;
-    const w = v.token_odds_weights;
-    const rowHtml = (m) => `<tr>
-      <td>${esc(m.name)} (n=${m.sample_count})</td>
-      <td class="pos">${m.model_log_rmse.toFixed(3)}</td>
-      <td class="dim">${m.naive_log_rmse.toFixed(3)}</td>
-      <td>${m.model_mdape_pct.toFixed(1)}% <span class="dim">(${m.naive_mdape_pct.toFixed(1)}%)</span></td>
-      <td>${m.model_spearman.toFixed(3)}</td>
-    </tr>`;
-    panel.innerHTML = `
-      <div>
-        <div class="proof-title">Dual Out-of-Sample Valuation Validation (Live Comps)</div>
-        <table class="proof-table">
-          <thead><tr><th>Split</th><th>Model Log-RMSE</th><th>Naive RMSE</th><th>MdAPE (Naive)</th><th>Spearman</th></tr></thead>
-          <tbody>${rowHtml(v.cv_5fold)}${rowHtml(v.temporal_holdout)}</tbody>
-        </table>
-      </div>
-      <div>
-        <div class="proof-title">Peer Token-Odds Logistic Fit (AUC ${v.token_odds_cv_auc.toFixed(3)} · Brier ${v.token_odds_cv_brier.toFixed(3)})</div>
-        <div class="weights-grid">
-          <div class="w-chip"><span>log(TVL)</span><span>${w.log_tvl >= 0 ? '+' : ''}${w.log_tvl.toFixed(3)}</span></div>
-          <div class="w-chip"><span>log(Age+30)</span><span>${w.log_age >= 0 ? '+' : ''}${w.log_age.toFixed(3)}</span></div>
-          <div class="w-chip"><span>log(Chains)</span><span>${w.log_chains >= 0 ? '+' : ''}${w.log_chains.toFixed(3)}</span></div>
-          <div class="w-chip"><span>7d Momentum</span><span>${w.growth_asinh >= 0 ? '+' : ''}${w.growth_asinh.toFixed(3)}</span></div>
-          <div class="w-chip"><span>Cat Peer Prior</span><span>${w.category_prior >= 0 ? '+' : ''}${w.category_prior.toFixed(3)}</span></div>
-          <div class="w-chip"><span>No-Age Flag</span><span>${w.missing_age >= 0 ? '+' : ''}${w.missing_age.toFixed(3)}</span></div>
-        </div>
-      </div>`;
+    const v = D.validation, w = v.token_odds_weights;
+    const rowHtml = (m) => `<tr><td>${esc(m.name)} (n=${m.sample_count})</td><td class="pos">${m.model_log_rmse.toFixed(3)}</td><td class="dim">${m.naive_log_rmse.toFixed(3)}</td><td>${m.model_mdape_pct.toFixed(1)}% <span class="dim">(${m.naive_mdape_pct.toFixed(1)}%)</span></td><td>${m.model_spearman.toFixed(3)}</td></tr>`;
+    const chips = [['log(TVL)', w.log_tvl], ['log(Age+30)', w.log_age], ['log(Chains)', w.log_chains], ['7d Momentum', w.growth_asinh], ['Cat Peer Prior', w.category_prior], ['No-Age Flag', w.missing_age]];
+    panel.innerHTML = `<div><div class="proof-title">Dual Out-of-Sample Valuation Validation (Live Comps)</div><table class="proof-table"><thead><tr><th>Split</th><th>Model Log-RMSE</th><th>Naive RMSE</th><th>MdAPE (Naive)</th><th>Spearman</th></tr></thead><tbody>${rowHtml(v.cv_5fold)}${rowHtml(v.temporal_holdout)}</tbody></table></div><div><div class="proof-title">Peer Token-Odds Logistic Fit (AUC ${v.token_odds_cv_auc.toFixed(3)} · Brier ${v.token_odds_cv_brier.toFixed(3)})</div><div class="weights-grid">${chips.map(([lbl, val]) => `<div class="w-chip"><span>${lbl}</span><span>${val >= 0 ? '+' : ''}${val.toFixed(3)}</span></div>`).join('')}</div></div>`;
   }
 
   function renderCurveChart(allRows) {
-    const svgW = 580;
-    const svgH = 172;
-    const padL = 54;
-    const padR = 16;
-    const padT = 14;
-    const padB = 24;
-    const plotW = svgW - padL - padR;
-    const plotH = svgH - padT - padB;
-    const xMin = Math.log10(4e6);
-    const xMax = Math.log10(1.2e10);
-    const yMin = Math.log10(4e5);
-    const yMax = Math.log10(2e10);
+    const svgW = 580, svgH = 160, padL = 52, padR = 16, padT = 12, padB = 22, plotW = svgW - padL - padR, plotH = svgH - padT - padB;
+    const xMin = Math.log10(4e6), xMax = Math.log10(1.2e10), yMin = Math.log10(4e5), yMax = Math.log10(2e10);
     const mapX = (tvl) => padL + ((Math.log10(Math.max(4e6, tvl)) - xMin) / (xMax - xMin)) * plotW;
     const mapY = (val) => padT + plotH - ((Math.log10(Math.max(4e5, val)) - yMin) / (yMax - yMin)) * plotH;
-
-    const gridX = [1e7, 1e8, 1e9, 1e10].map((v) => {
-      const x = mapX(v);
-      return `<line x1="${x}" y1="${padT}" x2="${x}" y2="${padT + plotH}" stroke="#1c2535"/>
-        <text x="${x}" y="${svgH - 8}" text-anchor="middle" fill="#64748b" font-size="9.5" font-family="ui-monospace,monospace">${fmtUsd(v)}</text>`;
-    }).join('');
-    const gridY = [1e6, 1e7, 1e8, 1e9, 1e10].map((v) => {
-      const y = mapY(v);
-      return `<line x1="${padL}" y1="${y}" x2="${svgW - padR}" y2="${y}" stroke="#1c2535"/>
-        <text x="${padL - 7}" y="${y + 3}" text-anchor="end" fill="#64748b" font-size="9.5" font-family="ui-monospace,monospace">${fmtUsd(v)}</text>`;
-    }).join('');
-
+    const gridX = [1e7, 1e8, 1e9, 1e10].map((v) => { const x = mapX(v); return `<line x1="${x}" y1="${padT}" x2="${x}" y2="${padT + plotH}" stroke="#1c2535"/><text x="${x}" y="${svgH - 7}" text-anchor="middle" fill="#64748b" font-size="9.5" font-family="ui-monospace,monospace">${fmtUsd(v)}</text>`; }).join('');
+    const gridY = [1e6, 1e7, 1e8, 1e9, 1e10].map((v) => { const y = mapY(v); return `<line x1="${padL}" y1="${y}" x2="${svgW - padR}" y2="${y}" stroke="#1c2535"/><text x="${padL - 7}" y="${y + 3}" text-anchor="end" fill="#64748b" font-size="9.5" font-family="ui-monospace,monospace">${fmtUsd(v)}</text>`; }).join('');
     const c = D.coefficients;
-    const linePts = [4e6, 2e7, 1e8, 5e8, 2.5e9, 1e10].map((tvl) => {
-      const mcap = Math.exp(c.intercept + c.beta_log_tvl * (Math.log(tvl) - c.mean_log_tvl));
-      return `${mapX(tvl).toFixed(1)},${mapY(mcap).toFixed(1)}`;
-    }).join(' ');
-
-    const liveDots = D.live.slice(0, 120).map((p) =>
-      `<circle cx="${mapX(p.tvl_usd).toFixed(1)}" cy="${mapY(p.mcap_usd).toFixed(1)}" r="2.3" fill="#a78bfa" fill-opacity="0.38"/>`
-    ).join('');
-
-    const preDots = allRows.map((r) => {
-      const col = r.cohort === 'watchlist' ? '#f0b90b' : '#38bdf8';
-      const sel = r.slug === state.selectedSlug;
-      return `<circle class="pt" data-slug="${esc(r.slug)}" cx="${mapX(r.tvl_usd).toFixed(1)}" cy="${mapY(r.implied_value_usd).toFixed(1)}" r="${sel ? 5 : 2.8}" fill="${col}" fill-opacity="${sel ? 1 : 0.78}" stroke="${sel ? '#fff' : 'none'}" style="cursor:pointer"/>`;
-    }).join('');
-
-    const legend = `<text x="${padL + 6}" y="${padT + 10}" fill="#a78bfa" font-size="9.5" font-family="ui-monospace,monospace">● Live comps</text>
-      <text x="${padL + 84}" y="${padT + 10}" fill="#f0b90b" font-size="9.5" font-family="ui-monospace,monospace">● Watchlist</text>
-      <text x="${padL + 162}" y="${padT + 10}" fill="#38bdf8" font-size="9.5" font-family="ui-monospace,monospace">● Early</text>
-      <text x="${padL + 216}" y="${padT + 10}" fill="#10b981" font-size="9.5" font-family="ui-monospace,monospace">— Fitted TVL^${c.beta_log_tvl.toFixed(2)}</text>`;
-
+    const linePts = [4e6, 2e7, 1e8, 5e8, 2.5e9, 1e10].map((tvl) => `${mapX(tvl).toFixed(1)},${mapY(Math.exp(c.intercept + c.beta_log_tvl * (Math.log(tvl) - c.mean_log_tvl))).toFixed(1)}`).join(' ');
+    const liveDots = D.live.slice(0, 120).map((p) => `<circle cx="${mapX(p.tvl_usd).toFixed(1)}" cy="${mapY(p.mcap_usd).toFixed(1)}" r="2.3" fill="#a78bfa" fill-opacity="0.38"/>`).join('');
+    const preDots = allRows.map((r) => { const sel = r.slug === state.selectedSlug; return `<circle class="pt" data-slug="${esc(r.slug)}" cx="${mapX(r.tvl_usd).toFixed(1)}" cy="${mapY(r.implied_value_usd).toFixed(1)}" r="${sel ? 5 : 2.8}" fill="${r.cohort === 'watchlist' ? '#f0b90b' : '#38bdf8'}" fill-opacity="${sel ? 1 : 0.78}" stroke="${sel ? '#fff' : 'none'}" style="cursor:pointer"/>`; }).join('');
+    const legend = [['#a78bfa', 6, '● Live comps'], ['#f0b90b', 84, '● Watchlist'], ['#38bdf8', 162, '● Early'], ['#10b981', 216, `— Fitted TVL^${c.beta_log_tvl.toFixed(2)}`]].map(([col, x, txt]) => `<text x="${padL + x}" y="${padT + 10}" fill="${col}" font-size="9.5" font-family="ui-monospace,monospace">${txt}</text>`).join('');
     $('chart-curve').innerHTML = `<svg viewBox="0 0 ${svgW} ${svgH}" role="img" aria-label="TVL vs Implied FDV curve">${gridX}${gridY}${liveDots}<polyline fill="none" stroke="#10b981" stroke-width="2" points="${linePts}"/>${preDots}${legend}</svg>`;
-    $('chart-curve').querySelectorAll('.pt').forEach((el) => {
-      el.addEventListener('click', () => { state.selectedSlug = el.getAttribute('data-slug'); renderAll(); });
-    });
+    $('chart-curve').querySelectorAll('.pt').forEach((el) => el.addEventListener('click', () => { state.selectedSlug = el.getAttribute('data-slug'); renderAll(); }));
   }
 
   function renderTopChart(filtered) {
     const isEv = state.rightChart === 'ev';
     $('right-chart-title').textContent = isEv ? `Top Net Farm EV ($${state.budget} Budget)` : 'Top Implied Pre-Token Launches [P25–P75]';
-    const items = [...filtered]
-      .sort((a, b) => isEv ? b.dyn_ev - a.dyn_ev : b.implied_value_usd - a.implied_value_usd)
-      .slice(0, 8);
-    if (items.length === 0) {
-      $('chart-top').innerHTML = '<div class="panel-note" style="padding:20px 0">No matching pre-token rows.</div>';
-      return;
-    }
-    const maxVal = Math.max(...items.map((r) => isEv ? Math.max(1, r.dyn_ev) : r.implied_high_usd), 1);
-    const svgW = 580;
-    const rowH = 20.5;
-    const h = items.length * rowH + 6;
-    const labelW = 152;
-    const barMaxW = 305;
-
+    const items = [...filtered].sort((a, b) => (isEv ? b.dyn_ev - a.dyn_ev : b.implied_value_usd - a.implied_value_usd)).slice(0, 8);
+    if (!items.length) { $('chart-top').innerHTML = '<div class="panel-note" style="padding:20px 0">No matching pre-token rows.</div>'; return; }
+    const maxVal = Math.max(...items.map((r) => (isEv ? Math.max(1, r.dyn_ev) : r.implied_high_usd)), 1);
+    const svgW = 580, rowH = 20, h = items.length * rowH + 6, labelW = 152, barMaxW = 305;
     const bars = items.map((r, i) => {
-      const y = i * rowH + 4;
-      const val = isEv ? Math.max(0, r.dyn_ev) : r.implied_value_usd;
-      const w = Math.max(4, Math.round((val / maxVal) * barMaxW));
-      const color = isEv ? '#10b981' : (r.cohort === 'watchlist' ? '#f0b90b' : '#38bdf8');
-      const sel = r.slug === state.selectedSlug;
-      let whisker = '';
-      if (!isEv) {
-        const x1 = labelW + Math.round((r.implied_low_usd / maxVal) * barMaxW);
-        const x2 = labelW + Math.round((r.implied_high_usd / maxVal) * barMaxW);
-        whisker = `<line x1="${x1}" y1="${y + 9}" x2="${x2}" y2="${y + 9}" stroke="#94a3b8" stroke-width="1.2"/>`;
-      }
+      const y = i * rowH + 4, val = isEv ? Math.max(0, r.dyn_ev) : r.implied_value_usd, w = Math.max(4, Math.round((val / maxVal) * barMaxW));
+      const color = isEv ? '#10b981' : (r.cohort === 'watchlist' ? '#f0b90b' : '#38bdf8'), sel = r.slug === state.selectedSlug;
+      const whisker = !isEv ? `<line x1="${labelW + Math.round((r.implied_low_usd / maxVal) * barMaxW)}" y1="${y + 9}" x2="${labelW + Math.round((r.implied_high_usd / maxVal) * barMaxW)}" y2="${y + 9}" stroke="#94a3b8" stroke-width="1.2"/>` : '';
       const lbl = isEv ? `+$${r.dyn_ev.toFixed(2)} (${r.farm_chain})` : `${fmtUsd(r.implied_value_usd)} (${r.token_odds_pct.toFixed(0)}%)`;
-      return `<g class="chart-row" data-slug="${esc(r.slug)}" style="cursor:pointer">
-        <rect x="0" y="${y}" width="${svgW}" height="${rowH - 2}" rx="4" fill="${sel ? 'rgba(240,185,11,0.12)' : 'transparent'}"/>
-        <text x="${labelW - 8}" y="${y + 13}" text-anchor="end" fill="#cbd5e1" font-size="10.5" font-family="ui-sans-serif,system-ui,sans-serif">${esc(r.name.slice(0, 21))}</text>
-        <rect x="${labelW}" y="${y + 4}" width="${barMaxW}" height="10" rx="2" fill="#172030"/>
-        <rect x="${labelW}" y="${y + 4}" width="${w}" height="10" rx="2" fill="${color}" fill-opacity="0.86"/>
-        ${whisker}
-        <text x="${labelW + barMaxW + 8}" y="${y + 13}" fill="#e6edf6" font-size="10.5" font-family="ui-monospace,monospace">${esc(lbl)}</text>
-      </g>`;
+      return `<g class="chart-row" data-slug="${esc(r.slug)}" style="cursor:pointer"><rect x="0" y="${y}" width="${svgW}" height="${rowH - 2}" rx="4" fill="${sel ? 'rgba(240,185,11,0.12)' : 'transparent'}"/><text x="${labelW - 8}" y="${y + 13}" text-anchor="end" fill="#cbd5e1" font-size="10.5">${esc(r.name.slice(0, 21))}</text><rect x="${labelW}" y="${y + 4}" width="${barMaxW}" height="10" rx="2" fill="#172030"/><rect x="${labelW}" y="${y + 4}" width="${w}" height="10" rx="2" fill="${color}" fill-opacity="0.86"/>${whisker}<text x="${labelW + barMaxW + 8}" y="${y + 13}" fill="#e6edf6" font-size="10.5" font-family="ui-monospace,monospace">${esc(lbl)}</text></g>`;
     }).join('');
-
     $('chart-top').innerHTML = `<svg viewBox="0 0 ${svgW} ${h}" role="img" aria-label="Top ranked pre-token protocols">${bars}</svg>`;
-    $('chart-top').querySelectorAll('.chart-row').forEach((el) => {
-      el.addEventListener('click', () => { state.selectedSlug = el.getAttribute('data-slug'); renderAll(); });
-    });
+    $('chart-top').querySelectorAll('.chart-row').forEach((el) => el.addEventListener('click', () => { state.selectedSlug = el.getAttribute('data-slug'); renderAll(); }));
   }
 
   function renderTable(filtered) {
-    const head = $('table-head');
-    const body = $('table-body');
+    const head = $('table-head'), body = $('table-body');
     if (state.view === 'live') {
       $('filter-summary').textContent = `${filtered.length} of ${D.live.length} live comps`;
       head.innerHTML = '<tr><th>Protocol</th><th>Category</th><th class="num">TVL</th><th class="num">Live MCAP</th><th class="num">MCAP/TVL</th><th class="num">7d &Delta;</th><th class="num">Age</th></tr>';
-      body.innerHTML = filtered.slice(0, 150).map((p) => `<tr>
-        <td><div class="proto-name">${esc(p.name)} <span class="badge b-live">${esc(p.symbol || 'LIVE')}</span></div><div class="subline">${esc(p.chains.slice(0, 4).join(', '))}</div></td>
-        <td>${esc(p.category || 'Other')}</td>
-        <td class="num mono">${fmtUsd(p.tvl_usd)}</td>
-        <td class="num mono violet">${fmtUsd(p.mcap_usd)}</td>
-        <td class="num mono">${p.mcap_tvl_ratio.toFixed(2)}x</td>
-        <td class="num mono">${fmtPct(p.change_7d)}</td>
-        <td class="num mono dim">${p.age_days !== null ? p.age_days + 'd' : 'n/a'}</td>
-      </tr>`).join('');
+      body.innerHTML = filtered.slice(0, 150).map((p) => `<tr><td><div class="proto-name">${esc(p.name)} <span class="badge b-live">${esc(p.symbol || 'LIVE')}</span></div><div class="subline">${esc(p.chains.slice(0, 4).join(', '))}</div></td><td>${esc(p.category || 'Other')}</td><td class="num mono">${fmtUsd(p.tvl_usd)}</td><td class="num mono violet">${fmtUsd(p.mcap_usd)}</td><td class="num mono">${p.mcap_tvl_ratio.toFixed(2)}x</td><td class="num mono">${fmtPct(p.change_7d)}</td><td class="num mono dim">${p.age_days !== null ? p.age_days + 'd' : 'n/a'}</td></tr>`).join('');
       return;
     }
 
     $('filter-summary').textContent = `${filtered.length} of ${D.rows.length} pre-token shown`;
-    head.innerHTML = '<tr><th>Rank</th><th>Protocol</th><th>Category</th><th class="num">TVL / 7d</th><th class="num">Token Odds</th><th class="num">Implied FDV</th><th class="num">Farm Verdict &amp; Net EV</th></tr>';
+    const arrow = (k) => (state.sort === k ? ' ▼' : ''), cls = (k, ex = '') => `sortable${state.sort === k ? ' sorted' : ''}${ex ? ' ' + ex : ''}`;
+    head.innerHTML = `<tr><th class="${cls('rank')}" data-sort="rank">Rank${arrow('rank')}</th><th>Protocol</th><th>Category</th><th class="${cls('tvl', 'num')}" data-sort="tvl">TVL / 7d${arrow('tvl')}</th><th class="${cls('odds', 'num')}" data-sort="odds">Token Odds${arrow('odds')}</th><th class="${cls('rank', 'num')}" data-sort="rank">Implied FDV${arrow('rank')}</th><th class="${cls('ev', 'num')}" data-sort="ev">Farm Verdict &amp; Net EV${arrow('ev')}</th></tr>`;
+    head.querySelectorAll('th[data-sort]').forEach((th) => th.addEventListener('click', () => { state.sort = th.getAttribute('data-sort'); $('f-sort').value = state.sort; renderAll(); }));
     body.innerHTML = filtered.map((r) => {
-      const sel = r.slug === state.selectedSlug ? 'selected' : '';
-      const badge = r.cohort === 'watchlist' ? '<span class="badge b-wl">WATCHLIST</span>' : '<span class="badge b-early">EARLY</span>';
-      const chains = r.chains.slice(0, 3).join(', ') + (r.chains.length > 3 ? ` +${r.chains.length - 3}` : '');
-      const evCls = r.dyn_ev >= 0 ? 'pos' : 'neg';
-      const evStr = `${r.dyn_ev >= 0 ? '+' : '-'}$${Math.abs(r.dyn_ev).toFixed(2)}`;
-      return `<tr class="${sel}" data-slug="${esc(r.slug)}">
-        <td class="mono sky">#${r.rank}</td>
-        <td><div class="proto-name">${esc(r.name)} ${badge}</div><div class="subline">${esc(chains)}</div></td>
-        <td><div>${esc(r.category || 'Uncat')}</div><div class="subline mono">${r.applied_multiple.toFixed(2)}x mult</div></td>
-        <td class="num mono"><div>${fmtUsd(r.tvl_usd)}</div><div class="subline">${fmtPct(r.change_7d)}</div></td>
-        <td class="num mono"><div class="odds-wrap"><div class="odds-bar"><div class="odds-fill" style="width:${Math.min(100, r.token_odds_pct)}%"></div></div><span>${r.token_odds_pct.toFixed(0)}%</span></div><div class="subline">E: ${fmtUsd(r.prob_weighted_fdv_usd)}</div></td>
-        <td class="num mono"><div class="gold">${fmtUsd(r.implied_value_usd)}</div><div class="subline">${fmtUsd(r.implied_low_usd)}–${fmtUsd(r.implied_high_usd)}</div></td>
-        <td class="num"><div>${verdictBadge(r.dyn_verdict)} <span class="mono ${evCls}">${evStr}</span></div><div class="subline mono">${esc(r.farm_chain)} · $${r.est_gas_usd.toFixed(2)} gas · ${r.hold_days}d</div></td>
-      </tr>`;
+      const sel = r.slug === state.selectedSlug ? 'selected' : '', badge = r.cohort === 'watchlist' ? '<span class="badge b-wl">WATCHLIST</span>' : '<span class="badge b-early">EARLY</span>';
+      const chains = r.chains.slice(0, 3).join(', ') + (r.chains.length > 3 ? ` +${r.chains.length - 3}` : ''), evCls = r.dyn_ev >= 0 ? 'pos' : 'neg', evStr = `${r.dyn_ev >= 0 ? '+' : '-'}$${Math.abs(r.dyn_ev).toFixed(2)}`;
+      return `<tr class="${sel}" data-slug="${esc(r.slug)}"><td class="mono sky">#${r.rank}</td><td><div class="proto-name">${esc(r.name)} ${badge}</div><div class="subline">${esc(chains)}</div></td><td><div>${esc(r.category || 'Uncat')}</div><div class="subline mono">${r.applied_multiple.toFixed(2)}x mult</div></td><td class="num mono"><div>${fmtUsd(r.tvl_usd)}</div><div class="subline">${fmtPct(r.change_7d)}</div></td><td class="num mono"><div class="odds-wrap"><div class="odds-bar"><div class="odds-fill" style="width:${Math.min(100, r.token_odds_pct)}%"></div></div><span>${r.token_odds_pct.toFixed(0)}%</span></div><div class="subline">E: ${fmtUsd(r.prob_weighted_fdv_usd)}</div></td><td class="num mono"><div class="gold">${fmtUsd(r.implied_value_usd)}</div><div class="subline">${fmtUsd(r.implied_low_usd)}–${fmtUsd(r.implied_high_usd)}</div></td><td class="num"><div>${verdictBadge(r.dyn_verdict)} <span class="mono ${evCls}">${evStr}</span></div><div class="subline mono">${esc(r.farm_chain)} · $${r.est_gas_usd.toFixed(2)} gas · ${r.hold_days}d</div></td></tr>`;
     }).join('');
-
-    body.querySelectorAll('tr[data-slug]').forEach((tr) => {
-      tr.addEventListener('click', () => {
-        const slug = tr.getAttribute('data-slug');
-        state.selectedSlug = state.selectedSlug === slug ? null : slug;
-        renderAll();
-      });
-    });
+    body.querySelectorAll('tr[data-slug]').forEach((tr) => tr.addEventListener('click', () => { const s = tr.getAttribute('data-slug'); state.selectedSlug = state.selectedSlug === s ? null : s; renderAll(); }));
   }
 
   function renderDetail(allRows) {
@@ -318,7 +178,6 @@
     ws.classList.add('has-detail');
 
     const decomp = E.decomposeImpliedFdv(row, D.coefficients);
-    const oddsCheck = E.scorePeerTokenOdds(row, D.validation.token_odds_weights);
     const peers = D.live.filter((p) => (p.category || '') === (row.category || '')).slice(0, 4);
     const compItems = [{ name: `${row.name.slice(0, 15)} (Est.)`, val: decomp.reportedFdv, est: true }, ...peers.map((p) => ({ name: `${p.name.slice(0, 15)} (${p.symbol || 'LIVE'})`, val: p.mcap_usd, est: false }))];
     const maxV = Math.max(...compItems.map((c) => c.val), 1);
@@ -334,34 +193,22 @@
 
     const evStr = `${row.dyn_ev >= 0 ? '+' : '-'}$${Math.abs(row.dyn_ev).toFixed(2)} (${row.dyn_roi.toFixed(1)}%)`;
     const costLabel = row.dyn_yield_offset ? 'Gas (Yield Offsets Carry)' : 'Gas + Carry Friction';
-    drawer.innerHTML = `
-      <div class="drawer-head">
-        <div>
-          <div class="drawer-title">${esc(row.name)} ${row.cohort === 'watchlist' ? '<span class="badge b-wl">WATCHLIST</span>' : '<span class="badge b-early">EARLY</span>'}</div>
-          <div class="drawer-meta">Rank #${row.rank} · ${esc(row.category || 'Uncategorized')} · ${row.age_days !== null ? row.age_days + 'd old' : 'age n/a'} · ${esc(row.chains.join(', '))}</div>
-        </div>
-        <button class="btn-ghost" id="drawer-close" type="button">Close</button>
-      </div>
-      <div class="drawer-note">No token recorded in DefiLlama snapshot. Peer Token Odds (${oddsCheck.storedOddsPct.toFixed(1)}%) reflects historical peer prevalence, not a prediction of launch.</div>
-      <div class="section-lbl"><span>Valuation &amp; Odds Decomposition</span><span>P25–P75: ${fmtUsd(decomp.p25Fdv)}–${fmtUsd(decomp.p75Fdv)}</span></div>
-      <div class="decomp-grid">
-        <div class="d-box"><div class="d-lbl">Snapshot TVL</div><div class="d-val">${fmtUsd(row.tvl_usd)}</div></div>
-        <div class="d-box"><div class="d-lbl">Implied FDV</div><div class="d-val gold">${fmtUsd(decomp.reportedFdv)}</div></div>
-        <div class="d-box"><div class="d-lbl">Peer Token Odds</div><div class="d-val sky">${oddsCheck.storedOddsPct.toFixed(1)}%</div></div>
-        <div class="d-box"><div class="d-lbl">Cat EB Adj</div><div class="d-val">${row.category_adj_mult.toFixed(2)}x</div></div>
-        <div class="d-box"><div class="d-lbl">7d / Age Mult</div><div class="d-val">${row.growth_multiplier.toFixed(2)}x / ${row.maturity_multiplier.toFixed(2)}x</div></div>
-        <div class="d-box"><div class="d-lbl">Prob-Wtd FDV</div><div class="d-val violet">${fmtUsd(row.prob_weighted_fdv_usd)}</div></div>
-      </div>
-      <div class="section-lbl"><span>Vs Live Category Comparables</span><span>${peers.length} peers · active TVL ${fmtUsd(row.dyn_active_tvl)}</span></div>
-      <div>${compSvg}</div>
-      <div class="section-lbl"><span>Costed Farm Economics ($${row.dyn_cap} Budget)</span><span>${verdictBadge(row.dyn_verdict)}</span></div>
-      <div class="decomp-grid">
-        <div class="d-box"><div class="d-lbl">Gross Airdrop Est</div><div class="d-val">+$${row.dyn_gross.toFixed(2)}</div></div>
-        <div class="d-box"><div class="d-lbl">${costLabel}</div><div class="d-val">-$${(row.est_gas_usd + row.dyn_carry).toFixed(2)}</div></div>
-        <div class="d-box"><div class="d-lbl">Net EV (ROI)</div><div class="d-val ${row.dyn_ev >= 0 ? 'pos' : 'neg'}">${evStr}</div></div>
-      </div>
-      <div class="section-lbl"><span>Execution Steps (${esc(row.farm_chain)})</span><span>${row.tx_count} txs · ${row.hold_days}d hold</span></div>
-      <ol class="steps-list">${row.farm_steps.map((s, i) => `<li class="step-item"><span class="step-num">${i + 1}</span><span>${esc(s)}</span></li>`).join('')}</ol>`;
+    const outflowTag = row.dyn_outflow_mult < 1 ? ` · Outflow Haircut ${(row.dyn_outflow_mult * 100).toFixed(0)}%` : '';
+    const dBoxes = (arr) => arr.map(([l, v, c = '']) => `<div class="d-box"><div class="d-lbl">${l}</div><div class="d-val ${c}">${v}</div></div>`).join('');
+    const valBoxes = dBoxes([
+      ['Snapshot TVL', fmtUsd(row.tvl_usd)],
+      ['Implied FDV', fmtUsd(decomp.reportedFdv), 'gold'],
+      ['Peer Token Odds', `${row.token_odds_pct.toFixed(1)}%`, 'sky'],
+      ['Cat EB Adj', `${row.category_adj_mult.toFixed(2)}x`],
+      ['7d / Age Mult', `${row.growth_multiplier.toFixed(2)}x / ${row.maturity_multiplier.toFixed(2)}x`],
+      ['Prob-Wtd FDV', fmtUsd(row.prob_weighted_fdv_usd), 'violet'],
+    ]);
+    const ecoBoxes = dBoxes([
+      ['Gross Airdrop Est', `+$${row.dyn_gross.toFixed(2)}`],
+      [costLabel, `-$${(row.est_gas_usd + row.dyn_carry).toFixed(2)}`],
+      ['Net EV (ROI)', evStr, row.dyn_ev >= 0 ? 'pos' : 'neg'],
+    ]);
+    drawer.innerHTML = `<div class="drawer-head"><div><div class="drawer-title">${esc(row.name)} ${row.cohort === 'watchlist' ? '<span class="badge b-wl">WATCHLIST</span>' : '<span class="badge b-early">EARLY</span>'}</div><div class="drawer-meta">Rank #${row.rank} · ${esc(row.category || 'Uncategorized')} · ${row.age_days !== null ? row.age_days + 'd old' : 'age n/a'} · ${esc(row.chains.join(', '))}</div></div><button class="btn-ghost" id="drawer-close" type="button">Close</button></div><div class="drawer-note">No token recorded in DefiLlama snapshot. Model: Base ${fmtUsd(decomp.baseSizeFdv)} (TVL^${decomp.elasticity.toFixed(2)}) × ${row.growth_multiplier.toFixed(2)} (7d) × ${row.maturity_multiplier.toFixed(2)} (age) × ${row.category_adj_mult.toFixed(2)} (cat EB) = ${fmtUsd(decomp.reportedFdv)}.</div><div class="section-lbl"><span>Valuation &amp; Odds Decomposition</span><span>P25–P75: ${fmtUsd(decomp.p25Fdv)}–${fmtUsd(decomp.p75Fdv)}</span></div><div class="decomp-grid">${valBoxes}</div><div class="section-lbl"><span>Vs Live Category Comparables</span><span>${peers.length} peers · active TVL ${fmtUsd(row.dyn_active_tvl)}</span></div><div>${compSvg}</div><div class="section-lbl"><span>Costed Farm Economics ($${row.dyn_cap} Budget${outflowTag})</span><span>${verdictBadge(row.dyn_verdict)}</span></div><div class="decomp-grid">${ecoBoxes}</div><div class="section-lbl"><span>Execution Steps (${esc(row.farm_chain)})</span><span>${row.tx_count} txs · ${row.hold_days}d hold</span></div><ol class="steps-list">${row.farm_steps.map((s, i) => `<li class="step-item"><span class="step-num">${i + 1}</span><span>${esc(s)}</span></li>`).join('')}</ol>`;
 
     $('drawer-close').addEventListener('click', () => { state.selectedSlug = null; renderAll(); });
   }
@@ -393,37 +240,18 @@
     $('f-chain').innerHTML = '<option value="">All Chains</option>' + chains.map((c) => `<option value="${esc(c)}">${esc(c)}</option>`).join('');
   }
 
-  document.querySelectorAll('.tab-btn').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      document.querySelectorAll('.tab-btn').forEach((b) => b.classList.remove('active'));
-      btn.classList.add('active');
-      state.view = btn.getAttribute('data-view');
-      renderAll();
-    });
-  });
-
-  document.querySelectorAll('.mini-btn').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      document.querySelectorAll('.mini-btn').forEach((b) => b.classList.remove('active'));
-      btn.classList.add('active');
-      state.rightChart = btn.getAttribute('data-chart');
-      renderAll();
-    });
-  });
-
+  const bindGroup = (sel, key, attr) => document.querySelectorAll(sel).forEach((b) => b.addEventListener('click', () => {
+    document.querySelectorAll(sel).forEach((x) => x.classList.remove('active')); b.classList.add('active'); state[key] = b.getAttribute(attr); renderAll();
+  }));
+  bindGroup('.tab-btn', 'view', 'data-view');
+  bindGroup('.mini-btn', 'rightChart', 'data-chart');
   $('proof-toggle').addEventListener('click', () => { state.proofOpen = !state.proofOpen; renderAll(); });
   $('charts-toggle').addEventListener('click', () => { state.chartsHidden = !state.chartsHidden; renderAll(); });
-  $('f-budget').addEventListener('change', (e) => { state.budget = Number(e.target.value) || 1000; renderAll(); });
-  $('f-search').addEventListener('input', (e) => { state.search = e.target.value; renderAll(); });
-  $('f-cat').addEventListener('change', (e) => { state.category = e.target.value; renderAll(); });
-  $('f-chain').addEventListener('change', (e) => { state.chain = e.target.value; renderAll(); });
-  $('f-verdict').addEventListener('change', (e) => { state.verdict = e.target.value; renderAll(); });
-  $('f-tvl').addEventListener('change', (e) => { state.minTvl = Number(e.target.value) || 0; renderAll(); });
-  $('f-sort').addEventListener('change', (e) => { state.sort = e.target.value; renderAll(); });
+  [['f-budget', 'change', (v) => (state.budget = Number(v) || 1000)], ['f-search', 'input', (v) => (state.search = v)], ['f-cat', 'change', (v) => (state.category = v)], ['f-chain', 'change', (v) => (state.chain = v)], ['f-verdict', 'change', (v) => (state.verdict = v)], ['f-tvl', 'change', (v) => (state.minTvl = Number(v) || 0)], ['f-sort', 'change', (v) => (state.sort = v)]].forEach(([id, ev, fn]) => $(id).addEventListener(ev, (e) => { fn(e.target.value); renderAll(); }));
   $('f-reset').addEventListener('click', () => {
-    state.search = ''; state.category = ''; state.chain = ''; state.verdict = ''; state.minTvl = 0; state.sort = 'rank';
-    $('f-search').value = ''; $('f-cat').value = ''; $('f-chain').value = ''; $('f-verdict').value = ''; $('f-tvl').value = '0'; $('f-sort').value = 'rank';
-    renderAll();
+    Object.assign(state, { search: '', category: '', chain: '', verdict: '', minTvl: 0, sort: 'rank' });
+    ['f-search', 'f-cat', 'f-chain', 'f-verdict'].forEach((id) => ($(id).value = ''));
+    $('f-tvl').value = '0'; $('f-sort').value = 'rank'; renderAll();
   });
 
   initSelects();

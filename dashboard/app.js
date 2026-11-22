@@ -2,8 +2,9 @@
   'use strict';
 
   const D = window.RADAR;
-  if (!D || !Array.isArray(D.rows)) {
-    document.body.innerHTML = '<p style="padding:24px;color:#fb7185">Missing window.RADAR dataset</p>';
+  const E = window.RadarEngine;
+  if (!D || !Array.isArray(D.rows) || !E) {
+    document.body.innerHTML = '<p style="padding:24px;color:#fb7185">Missing window.RADAR dataset or RadarEngine</p>';
     return;
   }
 
@@ -18,6 +19,7 @@
     budget: 1000,
     rightChart: 'fdv',
     proofOpen: false,
+    chartsHidden: false,
     selectedSlug: null,
   };
 
@@ -48,17 +50,7 @@
   }
 
   function computeEconomics(r) {
-    const cap = state.budget;
-    const odds = r.token_odds_pct / 100;
-    const carry = cap * 0.045 * (r.hold_days / 365);
-    const gross = (cap / (r.tvl_usd + cap)) * (0.05 * r.implied_value_usd) * odds;
-    const netEv = gross - r.est_gas_usd - carry;
-    const roi = (netEv / cap) * 100;
-    let verdict = 'SKIP';
-    if (netEv >= 8 && roi >= 0.8) verdict = 'STRONG FARM';
-    else if (netEv > 0) verdict = 'FARM';
-    else if (netEv > -6 && gross > r.est_gas_usd) verdict = 'SELECTIVE';
-    return { ...r, dyn_cap: cap, dyn_carry: carry, dyn_gross: gross, dyn_ev: netEv, dyn_roi: roi, dyn_verdict: verdict };
+    return E.computeDynamicFarmEconomics(r, state.budget);
   }
 
   function verdictBadge(v) {
@@ -106,10 +98,11 @@
   function renderHeaderAndKpis(allRows) {
     const c = D.coefficients;
     const v = D.validation;
+    const part = E.partitionUniverse(D);
     $('model-badge').textContent = D.model_name;
     $('snapshot-meta').textContent =
-      `Snapshot ${D.as_of} · ${D.total_protocols} protocols (${D.watchlist_count} Watchlist >= ${fmtUsd(D.floor_usd)} + ${D.early_count} Early) · ${D.excluded_pretoken_count} wrapped/bridge excluded`;
-    $('live-sep-pill').textContent = `${D.live_token_count} LIVE TOKENS SEPARATED`;
+      `Snapshot ${D.as_of} · ${D.total_protocols} protocols (${part.watchlistCount} Watchlist >= ${fmtUsd(D.floor_usd)} + ${part.earlyCount} Early) · ${part.excludedWrappedCount} wrapped/bridge excluded`;
+    $('live-sep-pill').textContent = `${part.liveCompsCount} LIVE TOKENS SEPARATED`;
     $('curve-note').textContent = `MCAP ~ TVL^${c.beta_log_tvl.toFixed(2)} · 5-fold CV Log-RMSE ${v.cv_5fold.model_log_rmse.toFixed(2)} vs ${v.cv_5fold.naive_log_rmse.toFixed(2)} naive`;
 
     const farmable = allRows.filter((r) => r.dyn_ev > 0);
@@ -117,13 +110,13 @@
     const bestEv = [...allRows].sort((a, b) => b.dyn_ev - a.dyn_ev)[0];
 
     $('cnt-all').textContent = String(allRows.length);
-    $('cnt-wl').textContent = String(D.watchlist_count);
-    $('cnt-early').textContent = String(D.early_count);
+    $('cnt-wl').textContent = String(part.watchlistCount);
+    $('cnt-early').textContent = String(part.earlyCount);
     $('cnt-farm').textContent = String(farmable.length);
-    $('cnt-live').textContent = String(D.live.length);
+    $('cnt-live').textContent = String(part.liveCompsCount);
 
     $('kpi-grid').innerHTML = [
-      { label: 'Watchlist Coverage', val: `${D.watchlist_count} / ${D.watchlist_count}`, cls: 'emerald', foot: `100% floor + ${D.early_count} early pre-token` },
+      { label: 'Watchlist Coverage', val: `${part.watchlistCount} / ${part.watchlistCount}`, cls: 'emerald', foot: `100% floor + ${part.earlyCount} early pre-token` },
       { label: 'Fitted Size Elasticity', val: `TVL^${c.beta_log_tvl.toFixed(2)}`, cls: 'sky', foot: `Ridge (${c.lambda_tvl}/${c.lambda_rest}) + Cat EB (k=${c.category_shrinkage_k})` },
       { label: 'Held-Out Log-RMSE', val: `${v.cv_5fold.model_log_rmse.toFixed(2)} vs ${v.cv_5fold.naive_log_rmse.toFixed(2)}`, cls: 'emerald', foot: `Holdout: ${v.temporal_holdout.model_log_rmse.toFixed(2)} vs ${v.temporal_holdout.naive_log_rmse.toFixed(2)} naive` },
       { label: 'Peer Token-Odds AUC', val: `${v.token_odds_cv_auc.toFixed(3)}`, cls: 'violet', foot: `5-fold Brier ${v.token_odds_cv_brier.toFixed(3)} across ${v.token_odds_universe} peers` },
@@ -168,11 +161,11 @@
 
   function renderCurveChart(allRows) {
     const svgW = 580;
-    const svgH = 225;
-    const padL = 56;
-    const padR = 18;
-    const padT = 16;
-    const padB = 30;
+    const svgH = 172;
+    const padL = 54;
+    const padR = 16;
+    const padT = 14;
+    const padB = 24;
     const plotW = svgW - padL - padR;
     const plotH = svgH - padT - padB;
     const xMin = Math.log10(4e6);
@@ -225,15 +218,15 @@
     $('right-chart-title').textContent = isEv ? `Top Net Farm EV ($${state.budget} Budget)` : 'Top Implied Pre-Token Launches [P25–P75]';
     const items = [...filtered]
       .sort((a, b) => isEv ? b.dyn_ev - a.dyn_ev : b.implied_value_usd - a.implied_value_usd)
-      .slice(0, 9);
+      .slice(0, 8);
     if (items.length === 0) {
       $('chart-top').innerHTML = '<div class="panel-note" style="padding:20px 0">No matching pre-token rows.</div>';
       return;
     }
     const maxVal = Math.max(...items.map((r) => isEv ? Math.max(1, r.dyn_ev) : r.implied_high_usd), 1);
     const svgW = 580;
-    const rowH = 24;
-    const h = items.length * rowH + 8;
+    const rowH = 20.5;
+    const h = items.length * rowH + 6;
     const labelW = 152;
     const barMaxW = 305;
 
@@ -324,20 +317,23 @@
     drawer.classList.remove('hidden');
     ws.classList.add('has-detail');
 
+    const decomp = E.decomposeImpliedFdv(row, D.coefficients);
+    const oddsCheck = E.scorePeerTokenOdds(row, D.validation.token_odds_weights);
     const peers = D.live.filter((p) => (p.category || '') === (row.category || '')).slice(0, 4);
-    const compItems = [{ name: `${row.name.slice(0, 14)} (Est.)`, val: row.implied_value_usd, est: true }, ...peers.map((p) => ({ name: `${p.name.slice(0, 14)} (${p.symbol || 'LIVE'})`, val: p.mcap_usd, est: false }))];
+    const compItems = [{ name: `${row.name.slice(0, 15)} (Est.)`, val: decomp.reportedFdv, est: true }, ...peers.map((p) => ({ name: `${p.name.slice(0, 15)} (${p.symbol || 'LIVE'})`, val: p.mcap_usd, est: false }))];
     const maxV = Math.max(...compItems.map((c) => c.val), 1);
-    const svgH = compItems.length * 22 + 6;
-    const compSvg = `<svg viewBox="0 0 430 ${svgH}" style="width:100%;height:auto">${compItems.map((c, i) => {
-      const y = i * 22 + 3;
-      const w = Math.max(4, Math.round((c.val / maxV) * 190));
-      return `<text x="150" y="${y + 12}" text-anchor="end" fill="#cbd5e1" font-size="10">${esc(c.name)}</text>
-        <rect x="158" y="${y + 3}" width="190" height="10" rx="2" fill="#172030"/>
-        <rect x="158" y="${y + 3}" width="${w}" height="10" rx="2" fill="${c.est ? '#f0b90b' : '#a78bfa'}"/>
-        <text x="356" y="${y + 12}" fill="#e6edf6" font-size="10" font-family="ui-monospace,monospace">${fmtUsd(c.val)}</text>`;
+    const svgH = compItems.length * 18 + 4;
+    const compSvg = `<svg viewBox="0 0 460 ${svgH}" style="width:100%;height:auto">${compItems.map((c, i) => {
+      const y = i * 18 + 2;
+      const w = Math.max(4, Math.round((c.val / maxV) * 205));
+      return `<text x="155" y="${y + 11}" text-anchor="end" fill="#cbd5e1" font-size="10">${esc(c.name)}</text>
+        <rect x="163" y="${y + 2}" width="205" height="9" rx="2" fill="#172030"/>
+        <rect x="163" y="${y + 2}" width="${w}" height="9" rx="2" fill="${c.est ? '#f0b90b' : '#a78bfa'}"/>
+        <text x="376" y="${y + 11}" fill="#e6edf6" font-size="10" font-family="ui-monospace,monospace">${fmtUsd(c.val)}</text>`;
     }).join('')}</svg>`;
 
     const evStr = `${row.dyn_ev >= 0 ? '+' : '-'}$${Math.abs(row.dyn_ev).toFixed(2)} (${row.dyn_roi.toFixed(1)}%)`;
+    const costLabel = row.dyn_yield_offset ? 'Gas (Yield Offsets Carry)' : 'Gas + Carry Friction';
     drawer.innerHTML = `
       <div class="drawer-head">
         <div>
@@ -346,22 +342,22 @@
         </div>
         <button class="btn-ghost" id="drawer-close" type="button">Close</button>
       </div>
-      <div class="drawer-note">No token recorded in DefiLlama snapshot. Peer Token Odds (${row.token_odds_pct.toFixed(1)}%) reflects historical peer prevalence, not a prediction of launch.</div>
-      <div class="section-lbl"><span>Valuation &amp; Odds Decomposition</span><span>P25–P75: ${fmtUsd(row.implied_low_usd)}–${fmtUsd(row.implied_high_usd)}</span></div>
+      <div class="drawer-note">No token recorded in DefiLlama snapshot. Peer Token Odds (${oddsCheck.storedOddsPct.toFixed(1)}%) reflects historical peer prevalence, not a prediction of launch.</div>
+      <div class="section-lbl"><span>Valuation &amp; Odds Decomposition</span><span>P25–P75: ${fmtUsd(decomp.p25Fdv)}–${fmtUsd(decomp.p75Fdv)}</span></div>
       <div class="decomp-grid">
         <div class="d-box"><div class="d-lbl">Snapshot TVL</div><div class="d-val">${fmtUsd(row.tvl_usd)}</div></div>
-        <div class="d-box"><div class="d-lbl">Implied FDV</div><div class="d-val gold">${fmtUsd(row.implied_value_usd)}</div></div>
-        <div class="d-box"><div class="d-lbl">Peer Token Odds</div><div class="d-val sky">${row.token_odds_pct.toFixed(1)}%</div></div>
+        <div class="d-box"><div class="d-lbl">Implied FDV</div><div class="d-val gold">${fmtUsd(decomp.reportedFdv)}</div></div>
+        <div class="d-box"><div class="d-lbl">Peer Token Odds</div><div class="d-val sky">${oddsCheck.storedOddsPct.toFixed(1)}%</div></div>
         <div class="d-box"><div class="d-lbl">Cat EB Adj</div><div class="d-val">${row.category_adj_mult.toFixed(2)}x</div></div>
         <div class="d-box"><div class="d-lbl">7d / Age Mult</div><div class="d-val">${row.growth_multiplier.toFixed(2)}x / ${row.maturity_multiplier.toFixed(2)}x</div></div>
         <div class="d-box"><div class="d-lbl">Prob-Wtd FDV</div><div class="d-val violet">${fmtUsd(row.prob_weighted_fdv_usd)}</div></div>
       </div>
-      <div class="section-lbl"><span>Vs Live Category Comparables</span><span>${peers.length} peers</span></div>
+      <div class="section-lbl"><span>Vs Live Category Comparables</span><span>${peers.length} peers · active TVL ${fmtUsd(row.dyn_active_tvl)}</span></div>
       <div>${compSvg}</div>
       <div class="section-lbl"><span>Costed Farm Economics ($${row.dyn_cap} Budget)</span><span>${verdictBadge(row.dyn_verdict)}</span></div>
       <div class="decomp-grid">
         <div class="d-box"><div class="d-lbl">Gross Airdrop Est</div><div class="d-val">+$${row.dyn_gross.toFixed(2)}</div></div>
-        <div class="d-box"><div class="d-lbl">Gas + Carry Cost</div><div class="d-val">-$${(row.est_gas_usd + row.dyn_carry).toFixed(2)}</div></div>
+        <div class="d-box"><div class="d-lbl">${costLabel}</div><div class="d-val">-$${(row.est_gas_usd + row.dyn_carry).toFixed(2)}</div></div>
         <div class="d-box"><div class="d-lbl">Net EV (ROI)</div><div class="d-val ${row.dyn_ev >= 0 ? 'pos' : 'neg'}">${evStr}</div></div>
       </div>
       <div class="section-lbl"><span>Execution Steps (${esc(row.farm_chain)})</span><span>${row.tx_count} txs · ${row.hold_days}d hold</span></div>
@@ -374,9 +370,18 @@
     const allRows = D.rows.map(computeEconomics);
     renderHeaderAndKpis(allRows);
     renderProofPanel();
+    const chartsEl = $('charts-grid');
+    if (chartsEl) chartsEl.classList.toggle('hidden', state.chartsHidden);
+    const chartsBtn = $('charts-toggle');
+    if (chartsBtn) {
+      chartsBtn.classList.toggle('active', state.chartsHidden);
+      chartsBtn.textContent = state.chartsHidden ? 'Show Charts' : 'Hide Charts';
+    }
     const filtered = applyFilters(allRows);
-    renderCurveChart(allRows);
-    renderTopChart(state.view === 'live' ? allRows : filtered);
+    if (!state.chartsHidden) {
+      renderCurveChart(allRows);
+      renderTopChart(state.view === 'live' ? allRows : filtered);
+    }
     renderTable(filtered);
     renderDetail(allRows);
   }
@@ -407,6 +412,7 @@
   });
 
   $('proof-toggle').addEventListener('click', () => { state.proofOpen = !state.proofOpen; renderAll(); });
+  $('charts-toggle').addEventListener('click', () => { state.chartsHidden = !state.chartsHidden; renderAll(); });
   $('f-budget').addEventListener('change', (e) => { state.budget = Number(e.target.value) || 1000; renderAll(); });
   $('f-search').addEventListener('input', (e) => { state.search = e.target.value; renderAll(); });
   $('f-cat').addEventListener('change', (e) => { state.category = e.target.value; renderAll(); });

@@ -195,8 +195,9 @@ export interface RadarPayload {
 
 const DAY_MS = 86_400_000;
 const DEFAULT_FARM_CAPITAL = 1000;
-const AIRDROP_POOL_SHARE = 0.05;
-const ANNUAL_CARRY_RATE = 0.045;
+const AIRDROP_POOL_SHARE = 0.08;
+const ACTIVE_TVL_EXPONENT = 0.78;
+const NON_YIELD_FRICTION_RATE = 0.008;
 
 const VERSIONED_RE = /\s(?:V\d+(?:\.\d+)?|v\d+(?:\.\d+)?|\d+\.\d+)$/;
 const WRAPPED_RE = /\b(?:wrapped|staked|staking)\b/i;
@@ -708,9 +709,25 @@ export function buildFarmPlan(
   const weeks = Math.max(4, Math.ceil(holdDays / 7));
   const txCount = 3 + weeks;
   const estGasUsd = round2(txFee * txCount);
-  const carryCostUsd = round2(capital * ANNUAL_CARRY_RATE * (holdDays / 365));
+  const cat = (p.category ?? '').toLowerCase();
+  const isYieldBearing =
+    cat.includes('lend') ||
+    cat.includes('cdp') ||
+    cat.includes('rwa') ||
+    cat.includes('basis') ||
+    cat.includes('yield') ||
+    cat.includes('curator') ||
+    cat.includes('allocator') ||
+    cat.includes('dex') ||
+    cat.includes('liquidity') ||
+    cat.includes('farm');
+  // Yield-bearing vaults/LPs offset capital carry; non-yielding margin/transfer protocols pay a modest friction spread.
+  const carryRate = isYieldBearing ? 0 : NON_YIELD_FRICTION_RATE;
+  const carryCostUsd = round2(capital * carryRate * (holdDays / 365));
+  const tvlMillions = Math.max(1, p.tvl_usd / 1_000_000);
+  const effectiveFarmTvl = Math.pow(tvlMillions, ACTIVE_TVL_EXPONENT) * 1_000_000;
   const grossAirdropUsd = round2(
-    (capital / (Math.max(1, p.tvl_usd) + capital)) *
+    (capital / (effectiveFarmTvl + capital)) *
       (AIRDROP_POOL_SHARE * impliedValueUsd) *
       tokenOdds,
   );
@@ -718,12 +735,11 @@ export function buildFarmPlan(
   const netRoiPct = round2((netEvUsd / Math.max(1, capital)) * 100);
 
   let verdict: FarmVerdict;
-  if (netEvUsd >= 8 && netRoiPct >= 0.8) verdict = 'STRONG FARM';
+  if (netEvUsd >= 10 && netRoiPct >= 1.0) verdict = 'STRONG FARM';
   else if (netEvUsd > 0) verdict = 'FARM';
-  else if (netEvUsd > -6 && grossAirdropUsd > estGasUsd) verdict = 'SELECTIVE';
+  else if (netEvUsd > -8 && grossAirdropUsd > estGasUsd) verdict = 'SELECTIVE';
   else verdict = 'SKIP';
 
-  const cat = (p.category ?? '').toLowerCase();
   let coreAction: string;
   let weeklyAction: string;
 
@@ -751,12 +767,15 @@ export function buildFarmPlan(
   const upkeepGas = round2(txFee * weeks);
   const exitFee = round2(txFee);
   const evSign = netEvUsd >= 0 ? `+$${netEvUsd.toFixed(2)}` : `-$${Math.abs(netEvUsd).toFixed(2)}`;
+  const costNote = isYieldBearing
+    ? `base protocol yield offsets carry; total gas ~$${estGasUsd.toFixed(2)}`
+    : `gas ~$${estGasUsd.toFixed(2)} + ~$${carryCostUsd.toFixed(2)} friction`;
 
   const steps = [
     `Fund an isolated wallet with $${capital} working capital plus $${Math.max(1, Math.ceil(estGasUsd * 1.5))} gas on ${chain} (lowest-fee supported chain, ~$${txFee}/tx). Cost: ~$${setupFee} setup gas. Time: 10 minutes.`,
     `${coreAction} Cost: $${capital} refundable principal + ~$${txFee} entry gas. Time: 15 minutes.`,
     `${weeklyAction} Cost: ~$${upkeepGas} across ${weeks} weekly txs. Time: 5 min/week for ${holdDays} days.`,
-    `Maintain position through ${holdDays} days (${weeks} weekly snapshots); 4.5% APR carry cost is ~$${carryCostUsd.toFixed(2)}. Verdict: ${verdict} (est. gross ~$${grossAirdropUsd.toFixed(2)}, net EV ${evSign}). Time: ${holdDays} days passive.`,
+    `Maintain position through ${holdDays} days (${weeks} weekly snapshots); ${costNote}. Verdict: ${verdict} (est. gross ~$${grossAirdropUsd.toFixed(2)}, net EV ${evSign}). Time: ${holdDays} days passive.`,
     `Verify official eligibility and claim/withdraw only via ${p.name}'s canonical app domain after any TGE. Cost: ~$${exitFee} exit gas. Time: 10 minutes.`,
   ].map(clampStep);
 

@@ -25,7 +25,8 @@
       <div class="integrity-strip" id="integrity-strip">
         <span class="pill pill-gold">PRE-TOKEN RANKED</span>
         <span class="pill pill-violet" id="live-sep-pill">LIVE SEPARATED</span>
-        <button class="pill pill-btn" id="proof-toggle" type="button">Held-Out Proof</button>
+        <button class="pill pill-btn" id="proof-toggle" type="button">Model Proof</button>
+        <button class="pill pill-btn" id="charts-toggle" type="button">Hide Charts</button>
       </div>
     </header>
 
@@ -33,7 +34,7 @@
 
     <section class="panel proof-panel hidden" id="proof-panel" aria-label="Held-out model validation"></section>
 
-    <section class="charts-grid" aria-label="Empirical model charts">
+    <section class="charts-grid" id="charts-grid" aria-label="Empirical model charts">
       <article class="panel chart-panel">
         <div class="panel-head">
           <h2>Fitted Size Curve: TVL vs Implied Launch FDV</h2>
@@ -119,6 +120,7 @@
   </div>
 
   <script src="../data.js"></script>
+  <script src="model-engine.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

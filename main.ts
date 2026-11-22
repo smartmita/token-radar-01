@@ -92,5 +92,5 @@ const dossierBytes = buildDossier(outDir, DOSSIER_CAPS);
 writeFileSync(join(outDir, 'dossier.json'), dossierBytes);
 
 process.stdout.write(
-  `token-radar: ${board.length} pre-token rows (${radar.watchlist_count} watchlist, ${radar.early_count} early), ${radar.live_token_count} live comparables, dossier ${dossierBytes.length} bytes\n`,
+  `token-radar: ${board.length} pre-token rows (${radar.watchlist_count} watchlist, ${radar.early_count} early), ${radar.live_token_count} live comparables, TVL^${radar.coefficients.beta_log_tvl.toFixed(2)}, CV Log-RMSE ${radar.validation.cv_5fold.model_log_rmse.toFixed(3)}, dossier ${dossierBytes.length} bytes\n`,
 );

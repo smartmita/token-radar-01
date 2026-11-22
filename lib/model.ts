@@ -51,13 +51,18 @@ export interface BoardRow {
   prob_weighted_fdv_usd: number;
   est_capital_usd: number;
   est_gas_usd: number;
+  est_bridge_usd: number;
+  est_slippage_usd: number;
   carry_cost_usd: number;
+  total_cost_usd: number;
   gross_airdrop_usd: number;
   net_ev_usd: number;
   net_roi_pct: number;
   hold_days: number;
   farm_chain: string;
   farm_verdict: string;
+  sector: string;
+  adj_source: string;
   valuation: {
     base_size_fdv_usd: number;
     applied_multiple: number;
@@ -78,6 +83,7 @@ export interface RadarPayload {
     intercept: number;
     beta_log_tvl: number;
     beta_growth_asinh: number;
+    beta_log_age: number;
     mean_log_tvl: number;
     median_age_days: number;
     oof_q25_log_err: number;

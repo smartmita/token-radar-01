@@ -10,26 +10,21 @@
   <div class="shell">
     <header class="topbar">
       <div class="brand">
-        <svg class="brand-mark" viewBox="0 0 36 36" width="32" height="32" aria-hidden="true">
-          <circle cx="18" cy="18" r="15" fill="#F0ECE3" stroke="#C8BFB0" stroke-width="1.4"/>
-          <circle cx="18" cy="18" r="9" fill="none" stroke="#9A4D12" stroke-width="1.3" stroke-opacity="0.55"/>
-          <path d="M18 18 L27.5 10.5" stroke="#0E5A46" stroke-width="2" stroke-linecap="round"/>
-          <circle cx="18" cy="18" r="2.5" fill="#9A4D12"/>
-          <circle cx="26" cy="11.5" r="2.2" fill="#0E5A46"/>
-        </svg>
+        <svg class="brand-mark" viewBox="0 0 36 36" width="28" height="28" aria-hidden="true"><circle cx="18" cy="18" r="15" fill="#F0ECE3" stroke="#C8BFB0" stroke-width="1.4"/><circle cx="18" cy="18" r="9" fill="none" stroke="#9A4D12" stroke-width="1.3" stroke-opacity=".55"/><path d="M18 18 L27.5 10.5" stroke="#0E5A46" stroke-width="2" stroke-linecap="round"/><circle cx="18" cy="18" r="2.5" fill="#9A4D12"/><circle cx="26" cy="11.5" r="2.2" fill="#0E5A46"/></svg>
         <div>
-          <div class="brand-title">TOKEN LAUNCH RADAR <span class="ver-pill" id="model-badge">v5</span></div>
+          <div class="brand-title">TOKEN LAUNCH RADAR <span class="ver-pill" id="model-badge">v6</span></div>
           <div class="brand-sub" id="snapshot-meta">Loading sealed DefiLlama snapshot…</div>
         </div>
       </div>
       <div class="header-actions">
         <span class="pill pill-warm">PRE-TOKEN RANKED</span>
         <span class="pill pill-slate" id="live-sep-pill">LIVE TOKENS SEPARATED</span>
-        <button class="pill pill-btn" id="proof-toggle" type="button">Methodology</button>
+        <button class="pill pill-btn" id="proof-toggle" type="button">Held-Out Proof</button>
         <button class="pill pill-btn" id="charts-toggle" type="button">Hide Charts</button>
       </div>
     </header>
 
+    <section class="integrity-strip" id="integrity-strip" aria-label="Model integrity and held-out validation"></section>
     <section class="kpi-grid" id="kpi-grid" aria-label="Radar summary metrics"></section>
     <section class="panel proof-panel hidden" id="proof-panel" aria-label="Out-of-sample model validation"></section>
 
@@ -61,42 +56,15 @@
         <button class="tab-btn" data-view="farmable" type="button">+EV Farmable <span class="cnt" id="cnt-farm">0</span></button>
         <button class="tab-btn" data-view="live" type="button">Live MCap Peers <span class="cnt" id="cnt-live">0</span></button>
         <div class="spacer"></div>
-        <label class="budget-ctl">
-          <span>Farm Budget</span>
-          <select id="f-budget" aria-label="Farming budget in USD">
-            <option value="250">$250</option>
-            <option value="500">$500</option>
-            <option value="1000" selected>$1,000</option>
-            <option value="2500">$2,500</option>
-            <option value="5000">$5,000</option>
-          </select>
-        </label>
+        <label class="budget-ctl"><span>Farm Budget</span><select id="f-budget" aria-label="Farming budget in USD"><option value="250">$250</option><option value="500">$500</option><option value="1000" selected>$1,000</option><option value="2500">$2,500</option><option value="5000">$5,000</option></select></label>
       </div>
       <div class="filters-row">
         <input id="f-search" type="search" placeholder="Search protocol, slug, or chain…" aria-label="Search protocols">
         <select id="f-cat" aria-label="Filter by category"><option value="">All Categories</option></select>
         <select id="f-chain" aria-label="Filter by chain"><option value="">All Chains</option></select>
-        <select id="f-verdict" aria-label="Filter by farm verdict">
-          <option value="">All Verdicts</option>
-          <option value="STRONG FARM">Strong Farm</option>
-          <option value="FARM">Farm (+EV)</option>
-          <option value="SELECTIVE">Selective</option>
-          <option value="SKIP">Skip / Diluted</option>
-        </select>
-        <select id="f-tvl" aria-label="Minimum TVL">
-          <option value="0">Any TVL</option>
-          <option value="10000000">TVL &ge; $10M</option>
-          <option value="50000000">TVL &ge; $50M</option>
-          <option value="250000000">TVL &ge; $250M</option>
-        </select>
-        <select id="f-sort" aria-label="Sort rows">
-          <option value="rank">Sort: Implied MCAP (Rank)</option>
-          <option value="ev">Sort: Net Farm EV ($)</option>
-          <option value="odds">Sort: Peer Token Rate</option>
-          <option value="pfdv">Sort: Prob-Wtd MCAP</option>
-          <option value="tvl">Sort: TVL (High &rarr; Low)</option>
-          <option value="growth">Sort: 7d Flow</option>
-        </select>
+        <select id="f-verdict" aria-label="Filter by farm verdict"><option value="">All Verdicts</option><option value="STRONG FARM">Strong Farm</option><option value="FARM">Farm (+EV)</option><option value="SELECTIVE">Selective</option><option value="SKIP">Skip / Diluted</option></select>
+        <select id="f-tvl" aria-label="Minimum TVL"><option value="0">Any TVL</option><option value="10000000">TVL &ge; $10M</option><option value="50000000">TVL &ge; $50M</option><option value="250000000">TVL &ge; $250M</option></select>
+        <select id="f-sort" aria-label="Sort rows"><option value="rank">Sort: Implied MCAP (Rank)</option><option value="ev">Sort: Net Farm EV ($)</option><option value="evhr">Sort: Active $/hr</option><option value="odds">Sort: Peer Token Rate</option><option value="pfdv">Sort: Prob-Wtd MCAP</option><option value="tvl">Sort: TVL (High &rarr; Low)</option><option value="growth">Sort: 7d Flow</option></select>
         <button class="btn-ghost" id="f-reset" type="button">Reset</button>
         <span class="filter-summary" id="filter-summary"></span>
       </div>

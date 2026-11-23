@@ -57,6 +57,9 @@ export interface BoardRow {
   total_cost_usd: number;
   gross_airdrop_usd: number;
   net_ev_usd: number;
+  ev_per_hr: number;
+  active_mins: number;
+  min_cap_usd: number | null;
   net_roi_pct: number;
   hold_days: number;
   farm_chain: string;
@@ -70,8 +73,20 @@ export interface BoardRow {
     category_adj_mult: number;
     growth_multiplier: number;
     maturity_multiplier: number;
+    chain_multiplier: number;
   };
   farm_steps: string[];
+}
+
+export interface HoldoutMetrics {
+  name: string;
+  sample_count: number;
+  model_log_rmse: number;
+  naive_log_rmse: number;
+  model_med_factor: number;
+  naive_med_factor: number;
+  model_spearman: number;
+  naive_spearman: number;
 }
 
 export interface RadarPayload {
@@ -84,6 +99,7 @@ export interface RadarPayload {
     beta_log_tvl: number;
     beta_growth_asinh: number;
     beta_log_age: number;
+    beta_log_chains: number;
     mean_log_tvl: number;
     median_age_days: number;
     oof_q25_log_err: number;
@@ -91,10 +107,9 @@ export interface RadarPayload {
     global_median_mult: number;
   };
   validation: {
-    cv_5fold: {
-      model_log_rmse: number;
-      naive_log_rmse: number;
-    };
+    loo_cv: HoldoutMetrics;
+    cv_5fold: HoldoutMetrics;
+    temporal_holdout: HoldoutMetrics;
   };
   watchlist_count: number;
   early_count: number;

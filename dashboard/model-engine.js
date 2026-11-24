@@ -5,17 +5,18 @@
 ((root) => {
   'use strict';
 
-  const DAY_MS = 86_400_000, DEF_CAP = 1000, POOL_SHARE = 0.08, TVL_EXP = 0.78, CARRY_APR = 0.04;
-  const VER_RE = /\s(?:V\d+(?:\.\d+)?|v\d+(?:\.\d+)?|\d+\.\d+)$/, WRAP_RE = /\b(?:wrapped|staked|staking)\b/i, CEX_RE = /^(?:Binance|Coinbase|Bybit|Kraken|Bitget|OKX|Bitfinex|Gemini)\b/i;
+  const DAY_MS = 86_400_000, DEF_CAP = 5000, POOL_SHARE = 0.08, TVL_EXP = 0.78, CARRY_APR = 0.04;
+  const VER_RE = /(?:\s(?:V\d+(?:\.\d+)?|v\d+(?:\.\d+)?|\d+\.\d+)|[a-z][Vv][2-9])$/, WRAP_RE = /\b(?:wrapped|staked|staking|restaking)\b/i, CEX_RE = /^(?:Binance|Coinbase|Bybit|Kraken|Bitget|OKX|Bitfinex|Gemini)\b/i;
   const EXCL_CATS = new Set(['Bridge', 'Canonical Bridge', 'Cross Chain Bridge', 'Liquid Staking', 'Liquid Restaking', 'Restaked BTC', 'Staking Pool', 'Stablecoin Wrapper', 'CEX']);
+  const EARLY_EXCL_CATS = new Set(['Restaking', 'Anchor BTC', 'Decentralized BTC']);
   const GAS = Object.fromEntries('Solana:.005,Sui:.005,Aptos:.005,Ripple:.005,Stellar:.005,Sonic:.01,Mantle:.01,Plasma:.01,Unichain:.01,Gnosis:.01,Hyperliquid L1:.01,Hyperliquid:.01,Base:.02,Arbitrum:.02,Optimism:.02,OP_Mainnet:.02,Ink:.02,Monad:.02,Berachain:.02,Abstract:.02,Soneium:.02,Polygon:.03,Linea:.03,Scroll:.03,Starknet:.03,Blast:.03,zkSync Era:.03,zkSync:.03,Avalanche:.05,Binance:.06,BSC:.06,Cardano:.08,Rootstock:.15,Tron:.45,Bitcoin:2.5,Ethereum:3.5'.split(',').map((s) => { const [k, v] = s.split(':'); return [k, +v]; }));
 
   const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v)), r2 = (v) => Math.round(v * 100) / 100, r4 = (v) => Math.round(v * 1e4) / 1e4;
   const quantile = (s, q) => { if (!s.length) return 0; const i = clamp(q, 0, 1) * (s.length - 1), lo = Math.floor(i), hi = Math.ceil(i); return lo === hi ? s[lo] : s[lo] * (hi - i) + s[hi] * (i - lo); };
   const medianOf = (a) => (a.length ? quantile([...a].sort((x, y) => x - y), 0.5) : 0.25);
   const isNoToken = (p) => p.mcap_usd === null && p.gecko_id === null && p.symbol === null, hasToken = (p) => !isNoToken(p);
-  const isCleanPre = (p) => isNoToken(p) && !(p.category && EXCL_CATS.has(p.category)) && !VER_RE.test(p.name) && !WRAP_RE.test(p.name) && !CEX_RE.test(p.name);
-  const isYieldBearing = (cat) => /(?:lend|cdp|rwa|basis|yield|curator|allocator|dex|liquidity|farm|restak)/i.test(String(cat || ''));
+  const isCleanPre = (p) => isNoToken(p) && !(p.category && (EXCL_CATS.has(p.category) || EARLY_EXCL_CATS.has(p.category))) && !VER_RE.test(p.name) && !WRAP_RE.test(p.name) && !CEX_RE.test(p.name);
+  const isYieldBearing = (cat) => /(?:lend|cdp|rwa|basis|yield|curator|allocator|dex|liquidity|farm|restak|collateral)/i.test(String(cat || ''));
   const sectorOf = (cat) => { const s = String(cat || '').toLowerCase(); return /(?:curator|allocator|yield|rwa|basis|cedefi)/.test(s) ? 'Yield & Allocators' : /(?:lend|cdp|collateral|credit)/.test(s) ? 'Credit & CDP' : /(?:dex|liquidity|deriv|option|prediction|perp)/.test(s) ? 'Trading & Perps' : 'Infra & Other'; };
   const ageDaysOf = (asOf, d) => { if (!d) return null; const e = Date.parse(`${asOf}T00:00:00Z`), s = Date.parse(`${d}T00:00:00Z`); return Number.isFinite(e) && Number.isFinite(s) ? Math.max(0, Math.floor((e - s) / DAY_MS)) : null; };
 
@@ -41,7 +42,7 @@
 
   /** Fits Huber IRLS (d=0.8): log(MCAP) ~ log(TVL) + asinh(7d/10) + log(age+30) + log(chains). */
   function fitValuationModel(train, asOf, opts = {}) {
-    const useG = opts.useGrowth !== false, useA = opts.useAge !== false, useC = opts.useChains !== false, kCat = opts.kCat || 0, lams = opts.lams || [0, 1, 40, 40, 6];
+    const useG = opts.useGrowth !== false, useA = opts.useAge !== false, useC = opts.useChains !== false, kCat = opts.kCat || 0, lams = opts.lams || [0, 1, 4, 4, 2];
     const mLt = train.length ? train.reduce((s, p) => s + Math.log(Math.max(1, p.tvl_usd)), 0) / train.length : Math.log(5e7);
     const ages = train.map((p) => ageDaysOf(asOf, p.listed_at)).filter((a) => a !== null), mA = ages.length ? medianOf(ages) : 365, rA = Math.log(mA + 30);
     const feat = (p) => [1, Math.log(Math.max(1, p.tvl_usd)) - mLt, useG ? Math.asinh((p.change_7d ?? 0) / 10) : 0, useA ? Math.log((ageDaysOf(asOf, p.listed_at) ?? mA) + 30) - rA : 0, useC ? Math.log(Math.max(1, p.chains.length)) : 0];
@@ -134,7 +135,7 @@
     const cap = Math.max(100, Number(budgetUsd) || DEF_CAP), odds = (row.token_odds_pct || 0) / 100;
     const effTvl = Math.pow(Math.max(1, row.tvl_usd / 1e6), TVL_EXP) * 1e6, isY = isYieldBearing(row.category);
     const sR = /(?:dex|liquidity|deriv|perp)/i.test(String(row.category || '')) ? 0.0012 : 0.0004;
-    const cR = (isY ? 0.005 : CARRY_APR) * (row.hold_days / 365), c7 = row.change_7d, age = row.age_days;
+    const cR = (isY ? 0 : CARRY_APR) * (row.hold_days / 365), c7 = row.change_7d, age = row.age_days;
     const oM = c7 !== null && c7 < -3 ? clamp(1 + (c7 + 3) / 60, 0.25, 1) : 1;
     const stagM = age === null ? 0.55 : age > 900 && (c7 === null || c7 < 5) ? clamp(900 / age, 0.45, 1) : 1;
     const br = Number(row.est_bridge_usd) || 0, fix = row.est_gas_usd + br;
@@ -162,15 +163,15 @@
     const { chain, txFee, chainCount } = pickCheapestChain(p.chains), c7 = p.change_7d;
     const baseHold = ageDays === null ? 45 : ageDays < 150 ? 60 : ageDays < 365 ? 45 : 30;
     const holdDays = c7 !== null && c7 < -10 ? Math.max(baseHold, 45) : baseHold;
-    const stepDays = txFee >= 1 ? 14 : 7, epochs = Math.max(2, Math.ceil(holdDays / stepDays));
+    const stepDays = txFee >= 1 ? 30 : 7, epochs = txFee >= 1 ? 1 : Math.max(2, Math.ceil(holdDays / stepDays));
     const needsBr = chain !== 'Ethereum' && p.chains.includes('Ethereum') && chainCount > 1;
     const brUsd = needsBr ? r2(chain === 'Solana' ? 0.85 : 0.45) : 0;
-    const eTxs = c7 !== null && c7 < -10 ? 2 : 1, txCount = 2 + eTxs + epochs + 1;
+    const eTxs = txFee < 1 && c7 !== null && c7 < -10 ? 2 : 1, txCount = 2 + eTxs + epochs + 1;
     const estGas = r2(txFee * txCount), mins = (needsBr ? 15 : 10) + (eTxs > 1 ? 20 : 12) + epochs * 5 + 10;
 
     const econ = computeFarmEconomics({ tvl_usd: p.tvl_usd, implied_value_usd: impliedUsd, token_odds_pct: r2(tokenOdds * 100), category: p.category, change_7d: c7, age_days: ageDays, hold_days: holdDays, est_gas_usd: estGas, est_bridge_usd: brUsd, active_mins: mins }, capital);
-    const cat = String(p.category || '').toLowerCase(), tr = eTxs > 1 ? `$${Math.round(capital / 2)} x 2 tranches` : `$${capital} deposit`;
-    const act = /(?:curator|allocator|rwa|basis|yield)/.test(cat) ? [`Deposit ${tr} in ${p.name} vault (${chain})`, `Verify points & compound every ${stepDays}d (${epochs}x)`] : /(?:lend|cdp|collateral)/.test(cat) ? [`Supply ${tr} USDC on ${p.name} (${chain}) <35% LTV`, `Check health & accrue every ${stepDays}d (${epochs}x)`] : /(?:dex|liquidity|farm)/.test(cat) ? [`Add ${tr} to stable LP on ${p.name} (${chain})`, `Swap $25+ & harvest every ${stepDays}d (${epochs}x)`] : /(?:deriv|option|prediction|perp)/.test(cat) ? [`Post ${tr} margin on ${p.name} (${chain}) delta-neutral`, `Place 1 hedged maker fill every ${stepDays}d (${epochs}x)`] : [`Stake ${tr} in ${p.name} pool (${chain})`, `Log 1 on-chain tx every ${stepDays}d (${epochs}x)`];
+    const cat = String(p.category || '').toLowerCase(), tr = eTxs > 1 ? `$${Math.round(capital / 2)} x 2 tranches` : `$${capital}`;
+    const act = /(?:curator|allocator|rwa|basis|yield)/.test(cat) ? [`Deposit ${tr} into ${p.name} vault (${chain})`, `Verify points & compound every ${stepDays}d (${epochs}x)`] : /(?:lend|cdp|collateral)/.test(cat) ? [`Supply ${tr} USDC on ${p.name} (${chain}) <35% LTV`, `Check health & accrue every ${stepDays}d (${epochs}x)`] : /(?:dex|liquidity|farm)/.test(cat) ? [`Add ${tr} to stable LP on ${p.name} (${chain})`, `Swap $25+ & harvest every ${stepDays}d (${epochs}x)`] : /(?:deriv|option|prediction|perp)/.test(cat) ? [`Post ${tr} margin on ${p.name} (${chain}) delta-neutral`, `Place 1 hedged maker fill every ${stepDays}d (${epochs}x)`] : [`Stake ${tr} in ${p.name} pool (${chain})`, `Log 1 on-chain tx every ${stepDays}d (${epochs}x)`];
     const chH = chainCount > 1 ? `cheapest of ${chainCount}` : 'native', flow = c7 !== null && c7 < -10 ? `${c7.toFixed(1)}% 7d, exit <-25%` : c7 !== null && c7 > 10 ? `+${c7.toFixed(1)}% 7d inflow` : `${c7 !== null ? `${c7 >= 0 ? '+' : ''}${c7.toFixed(1)}%` : 'n/a'} 7d`;
     const s1 = needsBr ? `Bridge $${capital} USDC to ${chain} (${chH}) + $${Math.max(2, Math.ceil(estGas * 2))} gas. Cost: $${brUsd.toFixed(2)} bridge + $${(txFee * 2).toFixed(2)} gas (2 txs). Time: 15m.` : `Fund ${chain} (${chH}) with $${capital} USDC + $${Math.max(1, Math.ceil(estGas * 2))} gas. Cost: $${(txFee * 2).toFixed(2)} gas (2 txs). Time: 10m.`;
     const s2 = `${act[0]} ($${capital} principal returned at exit). Cost: $${(txFee * eTxs).toFixed(2)} gas + $${econ.dyn_slippage.toFixed(2)} spread. Time: ${eTxs > 1 ? '20m' : '12m'}.`;

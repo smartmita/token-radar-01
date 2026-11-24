@@ -35,7 +35,7 @@ export interface BoardRow {
   name: string;
   category: string | null;
   chains: string[];
-  cohort: 'watchlist' | 'early';
+  cohort: 'watchlist' | 'offlist' | 'early';
   token_status: 'pre-token';
   tvl_usd: number;
   change_7d: number | null;
@@ -44,11 +44,13 @@ export interface BoardRow {
   gecko_id: string | null;
   symbol: string | null;
   age_days: number | null;
+  cond_fdv_usd: number;
   implied_value_usd: number;
   implied_low_usd: number;
   implied_high_usd: number;
+  implied_p10_usd: number;
+  implied_p90_usd: number;
   token_odds_pct: number;
-  prob_weighted_fdv_usd: number;
   est_capital_usd: number;
   est_gas_usd: number;
   est_bridge_usd: number;
@@ -97,14 +99,12 @@ export interface RadarPayload {
   coefficients: {
     intercept: number;
     beta_log_tvl: number;
-    beta_growth_asinh: number;
-    beta_log_age: number;
     beta_log_chains: number;
     mean_log_tvl: number;
-    median_age_days: number;
     oof_q25_log_err: number;
     oof_q75_log_err: number;
-    global_median_mult: number;
+    oof_coverage_pct: number;
+    oof_cov80_pct: number;
   };
   validation: {
     loo_cv: HoldoutMetrics;
@@ -112,6 +112,7 @@ export interface RadarPayload {
     temporal_holdout: HoldoutMetrics;
   };
   watchlist_count: number;
+  offlist_count: number;
   early_count: number;
   live_token_count: number;
   rows: unknown[];
